@@ -27,7 +27,12 @@ html,body{min-height:100vh;background:var(--bg);font-family:'Jost',sans-serif;co
 canvas#pigeons{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0}
 .app{max-width:680px;margin:0 auto;padding:0 1.25rem 5rem;position:relative;z-index:1}
 
-.hero{text-align:center;padding:3rem 0 2rem}
+/* sync indicator */
+.sync-bar{text-align:center;font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:.4rem 0 0;transition:color .3s}
+.sync-bar.live{color:#7abf8e}
+.sync-bar.error{color:#c96363}
+
+.hero{text-align:center;padding:2.5rem 0 2rem}
 .hero-eyebrow{font-size:.68rem;letter-spacing:.25em;text-transform:uppercase;color:var(--rose);margin-bottom:.9rem}
 .hero h1{font-family:'Cormorant Garamond',serif;font-size:3.2rem;font-weight:400;font-style:italic;color:var(--text);line-height:1;margin-bottom:.4rem}
 .hero h1 strong{font-weight:600;color:var(--rose-light);font-style:normal}
@@ -115,6 +120,8 @@ textarea.mem-ta::placeholder{color:var(--rose-dim)}
 <canvas id="pigeons"></canvas>
 
 <div class="app">
+  <div class="sync-bar" id="sync-bar">connecting…</div>
+
   <div class="hero">
     <div class="hero-eyebrow">a shared collection</div>
     <h1>our <strong>wishes</strong><br>& memories</h1>
@@ -176,11 +183,81 @@ textarea.mem-ta::placeholder{color:var(--rose-dim)}
 
 <div class="toast" id="toast"></div>
 
-<script>
-// ── Pigeon animation ──────────────────────────────────────────
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, remove, update }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+// ─────────────────────────────────────────────
+// 🔧 PASTE YOUR FIREBASE CONFIG HERE
+//    (replace everything inside firebaseConfig)
+// ─────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey:            "AIzaSyAfPwt6PYt6zMWT3F0hR7TPNRj0e3RphL4",
+  authDomain:        "whishlist-c6dd1.firebaseapp.com",
+  databaseURL:       "https://whishlist-c6dd1-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "whishlist-c6dd1",
+  storageBucket:     "whishlist-c6dd1.firebasestorage.app",
+  messagingSenderId: "934128043231",
+  appId:             "1:934128043231:web:21db7cf784fd479733956a"
+};
+// ─────────────────────────────────────────────
+
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
+const wishesRef   = ref(db, 'wishes');
+const memoriesRef = ref(db, 'memories');
+
+let wishes   = {};
+let memories = {};
+let isFirstLoad = true;
+
+const syncBar = document.getElementById('sync-bar');
+
+// ── Ask for notification permission on load ───
+if ('Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission();
+}
+
+function notify(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body, icon: 'https://em-content.zobj.net/source/apple/391/dove_1f54a-fe0f.png' });
+  }
+}
+
+// ── Live listeners ────────────────────────────
+onValue(wishesRef, snap => {
+  const newWishes = snap.val() || {};
+
+  if (!isFirstLoad) {
+    const oldKeys = new Set(Object.keys(wishes));
+    Object.values(newWishes).forEach(w => {
+      if (!oldKeys.has(String(w.id))) {
+        notify('🕊️ a new wish was added', w.name);
+      }
+    });
+  }
+
+  wishes = newWishes;
+  isFirstLoad = false;
+  syncBar.textContent = '🌸 synced live';
+  syncBar.className   = 'sync-bar live';
+  render();
+}, err => {
+  syncBar.textContent = '⚠ connection error';
+  syncBar.className   = 'sync-bar error';
+});
+
+onValue(memoriesRef, snap => {
+  memories = snap.val() || {};
+  render();
+});
+
+// ── Pigeon animation ──────────────────────────
 const canvas = document.getElementById('pigeons');
 const ctx = canvas.getContext('2d');
-
 function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 resize();
 window.addEventListener('resize', resize);
@@ -190,196 +267,116 @@ function drawPigeon(ctx, x, y, scale, wingAngle, facing) {
   ctx.translate(x, y);
   if (facing < 0) ctx.scale(-1, 1);
   ctx.scale(scale, scale);
-
-  const body   = '#b8a4b0';
-  const wing   = '#9e8e9a';
-  const breast = '#d4c0cc';
-  const neck   = '#c8b4c0';
-  const beak   = '#c8a060';
-
+  const body='#b8a4b0',wing='#9e8e9a',breast='#d4c0cc',neck='#c8b4c0',beak='#c8a060';
   ctx.save();
-  ctx.translate(0, Math.sin(wingAngle * 2) * 1.5);
-
-  // upper wing
-  ctx.save();
-  ctx.rotate(-wingAngle * 0.7);
-  ctx.beginPath();
-  ctx.ellipse(-8, -4, 18, 7, -0.3, 0, Math.PI * 2);
-  ctx.fillStyle = wing; ctx.fill();
-  ctx.restore();
-
-  // lower wing tip
-  ctx.save();
-  ctx.rotate(-wingAngle * 1.2);
-  ctx.beginPath();
-  ctx.moveTo(-4, -2);
-  ctx.bezierCurveTo(-18, -14, -28, -8, -24, 2);
-  ctx.bezierCurveTo(-18, 8, -8, 4, -4, -2);
-  ctx.fillStyle = wing; ctx.fill();
-  ctx.restore();
-
-  // body
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 14, 9, 0.15, 0, Math.PI * 2);
-  ctx.fillStyle = body; ctx.fill();
-
-  // breast
-  ctx.beginPath();
-  ctx.ellipse(8, 2, 8, 7, 0.3, 0, Math.PI * 2);
-  ctx.fillStyle = breast; ctx.fill();
-
-  // neck
-  ctx.beginPath();
-  ctx.ellipse(12, -5, 6, 5, -0.4, 0, Math.PI * 2);
-  ctx.fillStyle = neck; ctx.fill();
-
-  // head
-  ctx.beginPath();
-  ctx.arc(16, -9, 5.5, 0, Math.PI * 2);
-  ctx.fillStyle = body; ctx.fill();
-
-  // iridescent neck patch
-  ctx.beginPath();
-  ctx.ellipse(13, -6, 4, 3, -0.3, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(180,140,200,0.4)'; ctx.fill();
-
-  // beak
-  ctx.beginPath();
-  ctx.moveTo(21, -10); ctx.lineTo(27, -10); ctx.lineTo(26, -8); ctx.lineTo(21, -9);
-  ctx.fillStyle = beak; ctx.fill();
-
-  // beak knob
-  ctx.beginPath();
-  ctx.ellipse(22, -11, 3, 1.5, 0, 0, Math.PI * 2);
-  ctx.fillStyle = '#e0bca0'; ctx.fill();
-
-  // eye ring
-  ctx.beginPath();
-  ctx.arc(18, -10, 2, 0, Math.PI * 2);
-  ctx.fillStyle = '#e8c030'; ctx.fill();
-  // pupil
-  ctx.beginPath();
-  ctx.arc(18, -10, 1, 0, Math.PI * 2);
-  ctx.fillStyle = '#3a2030'; ctx.fill();
-
-  // tail
-  ctx.beginPath();
-  ctx.moveTo(-12, 0);
-  ctx.bezierCurveTo(-20, 2, -24, 8, -20, 10);
-  ctx.bezierCurveTo(-16, 12, -10, 8, -8, 4);
-  ctx.fillStyle = wing; ctx.fill();
-
-  ctx.restore();
-  ctx.restore();
+  ctx.translate(0, Math.sin(wingAngle*2)*1.5);
+  ctx.save(); ctx.rotate(-wingAngle*0.7);
+  ctx.beginPath(); ctx.ellipse(-8,-4,18,7,-0.3,0,Math.PI*2);
+  ctx.fillStyle=wing; ctx.fill(); ctx.restore();
+  ctx.save(); ctx.rotate(-wingAngle*1.2);
+  ctx.beginPath(); ctx.moveTo(-4,-2);
+  ctx.bezierCurveTo(-18,-14,-28,-8,-24,2);
+  ctx.bezierCurveTo(-18,8,-8,4,-4,-2);
+  ctx.fillStyle=wing; ctx.fill(); ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0,0,14,9,0.15,0,Math.PI*2); ctx.fillStyle=body; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(8,2,8,7,0.3,0,Math.PI*2); ctx.fillStyle=breast; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(12,-5,6,5,-0.4,0,Math.PI*2); ctx.fillStyle=neck; ctx.fill();
+  ctx.beginPath(); ctx.arc(16,-9,5.5,0,Math.PI*2); ctx.fillStyle=body; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(13,-6,4,3,-0.3,0,Math.PI*2);
+  ctx.fillStyle='rgba(180,140,200,0.4)'; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(21,-10); ctx.lineTo(27,-10); ctx.lineTo(26,-8); ctx.lineTo(21,-9);
+  ctx.fillStyle=beak; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(22,-11,3,1.5,0,0,Math.PI*2); ctx.fillStyle='#e0bca0'; ctx.fill();
+  ctx.beginPath(); ctx.arc(18,-10,2,0,Math.PI*2); ctx.fillStyle='#e8c030'; ctx.fill();
+  ctx.beginPath(); ctx.arc(18,-10,1,0,Math.PI*2); ctx.fillStyle='#3a2030'; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-12,0);
+  ctx.bezierCurveTo(-20,2,-24,8,-20,10); ctx.bezierCurveTo(-16,12,-10,8,-8,4);
+  ctx.fillStyle=wing; ctx.fill();
+  ctx.restore(); ctx.restore();
 }
-
-const pigeons = Array.from({ length: 7 }, (_, i) => {
-  const facing = Math.random() > 0.5 ? 1 : -1;
-  return {
-    x: facing > 0 ? -80 - i * 180 : window.innerWidth + 80 + i * 180,
-    y: 60 + Math.random() * 280,
-    speed: (0.5 + Math.random() * 0.8) * facing,
-    scale: 0.55 + Math.random() * 0.35,
-    wingAngle: Math.random() * Math.PI * 2,
-    wingSpeed: 0.04 + Math.random() * 0.04,
-    facing,
-    bobOffset: Math.random() * Math.PI * 2,
-  };
+const pigeons = Array.from({length:7},(_,i)=>{
+  const facing=Math.random()>.5?1:-1;
+  return {x:facing>0?-80-i*180:window.innerWidth+80+i*180,y:60+Math.random()*280,
+    speed:(0.5+Math.random()*0.8)*facing,scale:0.55+Math.random()*0.35,
+    wingAngle:Math.random()*Math.PI*2,wingSpeed:0.04+Math.random()*0.04,
+    facing,bobOffset:Math.random()*Math.PI*2};
 });
-
-let frame = 0;
-function animate() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+let frame=0;
+function animate(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
   frame++;
-  pigeons.forEach(p => {
-    p.x += p.speed * 0.9;
-    p.wingAngle += p.wingSpeed;
-    const bob = Math.sin(frame * 0.018 + p.bobOffset) * 3;
-    if (p.facing > 0 && p.x > canvas.width + 120)  p.x = -120;
-    if (p.facing < 0 && p.x < -120) p.x = canvas.width + 120;
-    drawPigeon(ctx, p.x, p.y + bob, p.scale, Math.sin(p.wingAngle) * 0.55, p.facing);
+  pigeons.forEach(p=>{
+    p.x+=p.speed*0.9; p.wingAngle+=p.wingSpeed;
+    const bob=Math.sin(frame*0.018+p.bobOffset)*3;
+    if(p.facing>0&&p.x>canvas.width+120) p.x=-120;
+    if(p.facing<0&&p.x<-120) p.x=canvas.width+120;
+    drawPigeon(ctx,p.x,p.y+bob,p.scale,Math.sin(p.wingAngle)*0.55,p.facing);
   });
   requestAnimationFrame(animate);
 }
 animate();
 
-// ── App logic ─────────────────────────────────────────────────
-let wishes   = JSON.parse(localStorage.getItem('cwp_wishes')   || '[]');
-let memories = JSON.parse(localStorage.getItem('cwp_memories') || '[]');
-
+// ── App logic ─────────────────────────────────
 const catEmoji = {
   'tech & gadgets':'🎮','fashion':'👗','home':'🏡',
   'books & media':'📚','experiences':'✈️','beauty':'💄',
   'food & drinks':'🍽️','other':'🎁','':'🎁'
 };
 
-function switchTab(tab, btn) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+window.switchTab = function(tab, btn) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById('pane-' + tab).classList.add('active');
-}
+  document.getElementById('pane-'+tab).classList.add('active');
+};
 
-function addWish() {
+window.addWish = function() {
   const name = document.getElementById('wname').value.trim();
   if (!name) return;
-  wishes.push({
-    id: Date.now(), name,
+  const id = Date.now().toString();
+  set(ref(db, 'wishes/'+id), {
+    id, name,
     price: document.getElementById('wprice').value || null,
     link:  document.getElementById('wlink').value.trim() || null,
     cat:   document.getElementById('wcat').value || null,
     prio:  document.getElementById('wprio').value || null,
-    added: new Date().toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
+    added: new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})
   });
-  save();
-  ['wname','wprice','wlink'].forEach(id => document.getElementById(id).value = '');
-  ['wcat','wprio'].forEach(id => document.getElementById(id).value = '');
+  ['wname','wprice','wlink'].forEach(id=>document.getElementById(id).value='');
+  ['wcat','wprio'].forEach(id=>document.getElementById(id).value='');
   showToast('wish added 🌸');
-}
+};
 
-function grantWish(id) {
-  const w = wishes.find(x => x.id === id);
+window.grantWish = function(id) {
+  const w = wishes[id];
   if (!w) return;
-  memories.unshift({
-    id: Date.now(), name: w.name, price: w.price, link: w.link, cat: w.cat,
-    grantedOn: new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' }),
+  const mid = Date.now().toString();
+  set(ref(db, 'memories/'+mid), {
+    id: mid, name: w.name, price: w.price, link: w.link, cat: w.cat,
+    grantedOn: new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}),
     note: ''
   });
-  wishes = wishes.filter(x => x.id !== id);
-  save();
+  remove(ref(db, 'wishes/'+id));
   showToast('wish granted ✨');
-}
+};
 
-function delWish(id)   { wishes   = wishes.filter(x => x.id !== id); save(); }
-function delMemory(id) { memories = memories.filter(x => x.id !== id); save(); showToast('memory removed'); }
+window.delWish   = id => remove(ref(db, 'wishes/'+id));
+window.delMemory = id => { remove(ref(db, 'memories/'+id)); showToast('memory removed'); };
 
-function saveNote(id) {
-  const m = memories.find(x => x.id === id);
-  if (!m) return;
-  const el = document.getElementById('mnote-' + id);
-  m.note = el ? el.value.trim() : '';
-  save();
+window.saveNote = function(id) {
+  const el = document.getElementById('mnote-'+id);
+  if (!el) return;
+  update(ref(db, 'memories/'+id), { note: el.value.trim() });
   showToast('note saved 💌');
-}
+};
 
-function editNote(id) {
-  const m = memories.find(x => x.id === id);
-  if (!m) return;
-  m.note = '';
-  save();
-}
-
-function save() {
-  localStorage.setItem('cwp_wishes',   JSON.stringify(wishes));
-  localStorage.setItem('cwp_memories', JSON.stringify(memories));
-  render();
-}
+window.editNote = id => update(ref(db, 'memories/'+id), { note: '' });
 
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
+  setTimeout(()=>t.classList.remove('show'), 2200);
 }
 
 function esc(s) {
@@ -392,58 +389,60 @@ function render() {
   const list  = document.getElementById('wish-list');
   const mlist = document.getElementById('mem-list');
 
-  document.getElementById('stat-total').textContent = wishes.length;
-  document.getElementById('stat-mem').textContent   = memories.length;
-  const prices = wishes.filter(w => w.price).map(w => parseFloat(w.price));
-  document.getElementById('stat-val').textContent   =
-    prices.length ? '$' + Math.round(prices.reduce((a,b) => a+b, 0)) : '—';
+  const wishArr    = Object.values(wishes);
+  const memArr     = Object.values(memories);
 
-  const prioOrder = { high:0, med:1, low:2, '':3 };
-  const sorted = [...wishes].sort((a,b) =>
-    (prioOrder[a.prio||'']||3) - (prioOrder[b.prio||'']||3));
+  document.getElementById('stat-total').textContent = wishArr.length;
+  document.getElementById('stat-mem').textContent   = memArr.length;
+  const prices = wishArr.filter(w=>w.price).map(w=>parseFloat(w.price));
+  document.getElementById('stat-val').textContent   =
+    prices.length ? '$'+Math.round(prices.reduce((a,b)=>a+b,0)) : '—';
+
+  const prioOrder = {high:0,med:1,low:2,'':3};
+  const sorted = [...wishArr].sort((a,b)=>
+    (prioOrder[a.prio||'']||3)-(prioOrder[b.prio||'']||3));
 
   list.innerHTML = !sorted.length
     ? '<div class="empty"><div class="empty-icon">~</div><div>no wishes yet<br><span style="font-size:.76rem">add your first one above</span></div></div>'
-    : sorted.map(w => `
+    : sorted.map(w=>`
       <div class="wish-card">
-        <button class="check-btn" onclick="grantWish(${w.id})" title="grant this wish">✓</button>
+        <button class="check-btn" onclick="grantWish('${w.id}')" title="grant this wish">✓</button>
         <div class="wish-body">
           <div class="wish-name">${esc(w.name)}</div>
           <div class="wish-meta">
-            ${w.cat   ? `<span class="wish-cat">${esc(w.cat)}</span>` : ''}
-            ${w.price ? `<span class="wish-price">$${parseFloat(w.price).toFixed(2)}</span>` : ''}
-            ${w.prio === 'high' ? '<span class="prio-high">high priority</span>'
-              : w.prio === 'med' ? '<span class="prio-med">medium</span>' : ''}
-            ${w.link  ? `<a class="wish-link" href="${esc(w.link)}" target="_blank">view →</a>` : ''}
+            ${w.cat   ?`<span class="wish-cat">${esc(w.cat)}</span>`:''}
+            ${w.price ?`<span class="wish-price">$${parseFloat(w.price).toFixed(2)}</span>`:''}
+            ${w.prio==='high'?'<span class="prio-high">high priority</span>'
+              :w.prio==='med'?'<span class="prio-med">medium</span>':''}
+            ${w.link  ?`<a class="wish-link" href="${esc(w.link)}" target="_blank">view →</a>`:''}
           </div>
         </div>
-        <button class="del-btn" onclick="delWish(${w.id})">✕</button>
+        <button class="del-btn" onclick="delWish('${w.id}')">✕</button>
       </div>`).join('');
 
-  mlist.innerHTML = !memories.length
+  const memSorted = [...memArr].sort((a,b)=>b.id-a.id);
+  mlist.innerHTML = !memSorted.length
     ? '<div class="empty"><div class="empty-icon">❧</div><div>no memories yet<br><span style="font-size:.76rem">grant a wish to begin your story</span></div></div>'
-    : memories.map(m => `
+    : memSorted.map(m=>`
       <div class="mem-card">
         <div class="mem-top">
-          <div class="mem-stamp">${catEmoji[m.cat||''] || '🎁'}</div>
+          <div class="mem-stamp">${catEmoji[m.cat||'']||'🎁'}</div>
           <div class="mem-body">
             <div class="mem-name">${esc(m.name)}</div>
             <div class="mem-granted">granted on <span>${m.grantedOn}</span></div>
           </div>
-          <button class="mem-del" onclick="delMemory(${m.id})">✕</button>
+          <button class="mem-del" onclick="delMemory('${m.id}')">✕</button>
         </div>
         <div class="mem-note-area">
           ${m.note
-            ? `<div class="mem-note-saved">"${esc(m.note)}"</div>
-               <button class="mem-edit-btn" onclick="editNote(${m.id})">edit note</button>`
-            : `<textarea id="mnote-${m.id}" class="mem-ta" rows="2"
-                 placeholder="write a memory… how did it feel?"></textarea>
-               <br><button class="mem-save-btn" onclick="saveNote(${m.id})">save note</button>`}
+            ?`<div class="mem-note-saved">"${esc(m.note)}"</div>
+              <button class="mem-edit-btn" onclick="editNote('${m.id}')">edit note</button>`
+            :`<textarea id="mnote-${m.id}" class="mem-ta" rows="2"
+                placeholder="write a memory… how did it feel?"></textarea>
+              <br><button class="mem-save-btn" onclick="saveNote('${m.id}')">save note</button>`}
         </div>
       </div>`).join('');
 }
-
-render();
 </script>
 </body>
 </html>
